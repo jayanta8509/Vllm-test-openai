@@ -9,7 +9,7 @@ model = ChatOpenAI(
     api_key="not-needed",
     model="dphn/dolphin-2.8-mistral-7b-v02",
     temperature=0.5,
-    max_tokens=100,
+    max_tokens=200,
     timeout=30
 )
 
