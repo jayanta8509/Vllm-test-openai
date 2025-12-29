@@ -5,7 +5,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 checkpointer = InMemorySaver()  
 
 model = ChatOpenAI(
-    base_url="https://5mtj0kx9kbmpk4-8000.proxy.runpod.net/v1",
+    base_url="https://ylmlzcmrec822y-8000.proxy.runpod.net/v1",
     api_key="not-needed",
     model="dphn/dolphin-2.8-mistral-7b-v02",
     temperature=0.5,
