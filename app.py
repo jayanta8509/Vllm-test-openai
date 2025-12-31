@@ -1,4 +1,4 @@
-from agent import charator
+from agent2 import charator
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel

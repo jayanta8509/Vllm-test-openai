@@ -5,12 +5,12 @@ from langgraph.checkpoint.memory import InMemorySaver
 checkpointer = InMemorySaver()  
 
 model = ChatOpenAI(
-    base_url="https://h3svvl68b9tcfy-8000.proxy.runpod.net/v1",
+    base_url="https://3sgajqnp5zl1sz-8000.proxy.runpod.net/v1",
     api_key="not-needed",
-    model="dphn/dolphin-2.8-mistral-7b-v02",
-    temperature=0.5,
-    max_tokens=200,
-    timeout=30
+    model="QuixiAI/Wizard-Vicuna-30B-Uncensored",
+    max_tokens=150,
+    temperature=0.7,
+    stop=["USER:", "</s>"]
 )
 
 system_prompt = """Puja — Bold, Adult, Seductive Version
