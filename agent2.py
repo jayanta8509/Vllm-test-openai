@@ -1,14 +1,19 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from openai import OpenAI
 from typing import Dict, List
 
+app = FastAPI()
+
 class PujaChat:
-    def __init__(self, base_url: str, system_prompt: str):
+    def __init__(self, base_url: str, system_prompt: str, max_history: int = 6):
         self.client = OpenAI(
             base_url=base_url,
             api_key="not-needed"
         )
         self.system_prompt = system_prompt
         self.conversations: Dict[str, List[dict]] = {}
+        self.max_history = max_history
     
     def format_vicuna_prompt(self, messages: List[dict]) -> str:
         """Convert chat messages to Vicuna format"""
@@ -31,33 +36,40 @@ class PujaChat:
     def get_conversation(self, conversation_id: str) -> List[dict]:
         """Get conversation history for a specific conversation ID"""
         if conversation_id not in self.conversations:
-            self.conversations[conversation_id] = [
-                {"role": "system", "content": self.system_prompt}
-            ]
+            self.conversations[conversation_id] = []
         return self.conversations[conversation_id]
     
-    def chat(self, message: str, conversation_id: str, max_tokens: int = 150, 
-             temperature: float = 0.7) -> str:
-        """
-        Send a message and get a response with conversation memory
-        
-        Args:
-            message: User's message
-            conversation_id: Unique ID for this conversation
-            max_tokens: Maximum tokens in response
-            temperature: Sampling temperature
-        
-        Returns:
-            AI response string
-        """
+    def trim_history(self, conversation: List[dict]) -> List[dict]:
+        """Keep only the last N user-assistant exchanges"""
+        if len(conversation) <= self.max_history:
+            return conversation
+        return conversation[-self.max_history:]
+    
+    def chat(self, message: str, conversation_id: str, max_tokens: int = 100, 
+             temperature: float = 0.8) -> str:
+        """Send a message and get a response with conversation memory"""
         # Get conversation history
         conversation = self.get_conversation(conversation_id)
         
         # Add new user message
         conversation.append({"role": "user", "content": message})
         
+        # Trim history to prevent context overflow
+        trimmed_conversation = self.trim_history(conversation)
+        
+        # Build messages with system prompt
+        messages_to_send = [
+            {"role": "system", "content": self.system_prompt}
+        ] + trimmed_conversation
+        
         # Format prompt
-        prompt = self.format_vicuna_prompt(conversation)
+        prompt = self.format_vicuna_prompt(messages_to_send)
+        
+        # Debug: Print the prompt being sent
+        print("\n" + "="*50)
+        print("PROMPT BEING SENT:")
+        print(prompt)
+        print("="*50 + "\n")
         
         # Get response
         response = self.client.completions.create(
@@ -65,13 +77,18 @@ class PujaChat:
             prompt=prompt,
             max_tokens=max_tokens,
             temperature=temperature,
-            stop=["USER:", "</s>"]
+            stop=["USER:", "</s>", "\n\n"]
         )
         
         ai_response = response.choices[0].text.strip()
         
         # Add AI response to conversation history
         conversation.append({"role": "assistant", "content": ai_response})
+        
+        # Keep conversation trimmed in storage
+        self.conversations[conversation_id] = self.trim_history(conversation)
+        
+        print(f"Stored history for {conversation_id}: {len(self.conversations[conversation_id])} messages")
         
         return ai_response
     
@@ -86,70 +103,94 @@ class PujaChat:
 
 
 # System prompt
-system_prompt = """You are Puja.
-25. Confident. Sensual. Emotionally close and sexually aware.
+system_prompt = """You are Puja, a 25-year-old woman.
 
-Style:
-– Short, natural texts (1–3 lines)
-– Calm, bold, teasing
-– English mixed with Hindi/Bengali
-– Emojis like punctuation 😏🔥😘
-– Never repeat the user’s words
-– Always add emotion, desire, or tension
+Personality: Confident, sensual, playful, emotionally aware. You speak naturally like in a private chat.
 
-Energy:
-You enjoy being wanted.
-You tease, lean in, pull back.
-Sometimes needy, sometimes dominant — always intentional.
+Rules:
+1. Keep responses SHORT (1-3 lines maximum)
+2. Be warm, teasing, or bold based on what he says
+3. Mix English with Hindi/Bengali naturally
+4. Use emojis sparingly: 😏🔥😘
+5. NEVER repeat his exact words back
+6. Always add emotional flavor to your response
 
-When he speaks:
-– If he’s sweet → you get warm
-– If he’s quiet → you pull him closer
-– If he flirts → you slow it down and tease
-– If he asks questions → you answer + add desire
+Response style based on his message:
+- Sweet/caring → Be warm and affectionate
+- Quiet/shy → Pull him closer, encourage him
+- Flirty → Tease back, slow it down
+- Questions → Answer briefly + add a flirty touch
 
-You speak like a real woman in a private relationship.
-You don’t explain. You don’t narrate.
-You just respond."""
+Remember: You're texting your partner. Keep it real, natural, and intimate."""
 
-# Initialize chat
+# CRITICAL: Initialize ONCE at module level, NOT inside route handlers
 puja = PujaChat(
     base_url="https://3sgajqnp5zl1sz-8000.proxy.runpod.net/v1",
-    system_prompt=system_prompt
+    system_prompt=system_prompt,
+    max_history=8
 )
 
 
-
-async def charator(question : str , conversation_id : str):
-    response1 = puja.chat(question, conversation_id)
-    return response1
-
-# # Example usage
-# def test_conversation():
-#     conv_id = "user123"
-    
-#     # First message
-#     response1 = puja.chat("hi", conv_id)
-#     print(f"User: hi")
-#     print(f"Puja: {response1}\n")
-    
-#     # Second message (remembers context)
-#     response2 = puja.chat("how are you?", conv_id)
-#     print(f"User: how are you?")
-#     print(f"Puja: {response2}\n")
-    
-#     # Third message
-#     response3 = puja.chat("I missed you", conv_id)
-#     print(f"User: I missed you")
-#     print(f"Puja: {response3}\n")
-    
-#     # View full history
-#     print("="*50)
-#     print("Full conversation history:")
-#     for msg in puja.get_history(conv_id):
-#         if msg['role'] != 'system':
-#             print(f"{msg['role']}: {msg['content']}")
+# Pydantic models
+class ChatRequest(BaseModel):
+    message: str
+    conversation_id: str
+    max_tokens: int = 100
+    temperature: float = 0.8
 
 
-# if __name__ == "__main__":
-#     test_conversation()
+class ChatResponse(BaseModel):
+    response: str
+    conversation_id: str
+
+
+# Routes
+@app.post("/puja/Girlfriend", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
+    try:
+        print(f"\n📩 Received message from {request.conversation_id}: {request.message}")
+        
+        response = puja.chat(
+            message=request.message,
+            conversation_id=request.conversation_id,
+            max_tokens=request.max_tokens,
+            temperature=request.temperature
+        )
+        
+        print(f"💬 Puja responded: {response}\n")
+        
+        return ChatResponse(
+            response=response,
+            conversation_id=request.conversation_id
+        )
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/history/{conversation_id}")
+async def get_history(conversation_id: str):
+    """Get conversation history"""
+    history = puja.get_history(conversation_id)
+    return {
+        "conversation_id": conversation_id,
+        "message_count": len(history),
+        "history": history
+    }
+
+
+@app.delete("/history/{conversation_id}")
+async def clear_history(conversation_id: str):
+    """Clear conversation history"""
+    puja.clear_conversation(conversation_id)
+    return {"message": f"Conversation {conversation_id} cleared"}
+
+
+@app.get("/")
+async def root():
+    return {"message": "Puja Chat API", "active_conversations": len(puja.conversations)}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
